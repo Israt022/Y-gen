@@ -25,6 +25,10 @@ export interface AnimeItem {
   seasonYear?: number | null;
   genres: string[];
   rank?: number;
+  trailer?: {
+    id: string;
+    site: string;
+  } | null;
 }
 
 export interface AnimeDetail extends AnimeItem {

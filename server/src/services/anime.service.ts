@@ -129,6 +129,7 @@ function mapToAnimeItem(media: AniListMedia, rank?: number): AnimeItem {
     seasonYear: media.seasonYear,
     genres: media.genres || [],
     rank,
+    trailer: media.trailer,
   };
 }
 
@@ -171,8 +172,11 @@ export class AnimeService {
             format
             episodes
             season
-            seasonYear
             genres
+            trailer {
+              id
+              site
+            }
           }
         }
       }
@@ -336,10 +340,99 @@ export class AnimeService {
    * Fetch a featured hero anime (popular with high score and landscape banner).
    */
   async getFeaturedAnime(): Promise<AnimeItem | null> {
-    const { anime } = await this.getPopularAnime(1, 10);
-    // Find first anime that has both a great landscape banner and high score
-    const withBanner = anime.find((a) => Boolean(a.bannerImage));
-    return withBanner || anime[0] || null;
+    const list = await this.getHeroAnimeList(5);
+    return list[0] || null;
+  }
+
+  /**
+   * Fetch a curated list of iconic featured anime for the cinematic Hero Section.
+   * Prioritizes world-renowned masterpieces: Attack on Titan, Demon Slayer,
+   * Jujutsu Kaisen, One Piece, Bleach, Fullmetal Alchemist, Hunter x Hunter, Naruto, etc.
+   */
+  async getHeroAnimeList(limit = 6): Promise<AnimeItem[]> {
+    // Verified AniList IDs of globally iconic anime requested by the user
+    const ICONIC_IDS = [
+      16498, // Attack on Titan
+      101922, // Demon Slayer: Kimetsu no Yaiba
+      113415, // Jujutsu Kaisen
+      21, // One Piece
+      269, // Bleach
+      5114, // Fullmetal Alchemist: Brotherhood
+      11061, // Hunter x Hunter (2011)
+      1535, // Death Note
+      20, // Naruto
+      21459, // My Hero Academia
+    ];
+
+    try {
+      const query = `
+        query ($ids: [Int]) {
+          Page(page: 1, perPage: 12) {
+            media(type: ANIME, id_in: $ids, isAdult: false) {
+              id
+              title {
+                romaji
+                english
+                native
+              }
+              description(asHtml: false)
+              bannerImage
+              coverImage {
+                extraLarge
+                large
+                medium
+                color
+              }
+              averageScore
+              status
+              format
+              episodes
+              season
+              seasonYear
+              genres
+              trailer {
+                id
+                site
+              }
+            }
+          }
+        }
+      `;
+
+      const data = await fetchAniList<AniListPageResponse>(
+        query,
+        { ids: ICONIC_IDS },
+        3600 // Cache 1 hour
+      );
+
+      const items = (data.Page.media || [])
+        .map((m) => mapToAnimeItem(m))
+        .filter((a) => Boolean(a.bannerImage));
+
+      // Order according to our preferred iconic list order
+      const sorted = ICONIC_IDS.map((id) =>
+        items.find((item) => item.id === id)
+      ).filter((item): item is AnimeItem => Boolean(item));
+
+      if (sorted.length >= limit) {
+        return sorted.slice(0, limit);
+      }
+
+      // If any are missing, fill from general popular anime
+      const { anime: popular } = await this.getPopularAnime(1, 10);
+      const combined = [...sorted];
+      for (const p of popular) {
+        if (!combined.some((c) => c.id === p.id) && p.bannerImage) {
+          combined.push(p);
+        }
+        if (combined.length >= limit) break;
+      }
+      return combined;
+    } catch (err) {
+      console.error("[AnimeService.getHeroAnimeList] Fallback to popular:", err);
+      const { anime } = await this.getPopularAnime(1, 10);
+      return anime.filter((a) => Boolean(a.bannerImage)).slice(0, limit);
+    }
   }
 }
 
