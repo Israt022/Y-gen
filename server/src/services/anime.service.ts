@@ -56,6 +56,7 @@ async function fetchAniList<T>(
 // Interfaces matching AniList schema
 interface AniListMedia {
   id: number;
+  type: string;
   title: {
     romaji: string;
     english: string | null;
@@ -434,6 +435,189 @@ export class AnimeService {
       return anime.filter((a) => Boolean(a.bannerImage)).slice(0, limit);
     }
   }
+
+  async getRelatedAnime(
+    id: number,
+    genres: string[],
+    limit = 12
+  ): Promise<{
+    franchise: AnimeItem[];
+    recommended: AnimeItem[];
+  }> {
+    const query = `
+      query ($id: Int) {
+        Media(id: $id, type: ANIME) {
+          relations {
+            edges {
+              relationType
+              node {
+                id
+                type
+                title { romaji english native }
+                description(asHtml: false)
+                bannerImage
+                coverImage { extraLarge large medium color }
+                averageScore
+                status
+                format
+                episodes
+                season
+                seasonYear
+                genres
+                trailer { id site }
+              }
+            }
+          }
+          recommendations(sort: RATING_DESC) {
+            nodes {
+              mediaRecommendation {
+                id
+                type
+                title { romaji english native }
+                description(asHtml: false)
+                bannerImage
+                coverImage { extraLarge large medium color }
+                averageScore
+                status
+                format
+                episodes
+                season
+                seasonYear
+                genres
+                trailer { id site }
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    type RelatedMedia = {
+      Media: {
+        relations: {
+          edges: Array<{
+            relationType: string;
+            node: AniListMedia | null;
+          }>;
+        };
+        recommendations: {
+          nodes: Array<{
+            mediaRecommendation: AniListMedia | null;
+          }>;
+        };
+      } | null;
+    };
+
+    const data = await fetchAniList<RelatedMedia>(
+      query,
+      { id },
+      3600
+    );
+
+    const media = data.Media;
+
+    if (!media) {
+      return { franchise: [], recommended: [] };
+    }
+
+    const franchiseTypes = new Set([
+      "PREQUEL",
+      "SEQUEL",
+      "PARENT",
+      "SIDE_STORY",
+      "SPIN_OFF",
+      "ALTERNATIVE",
+      "SUMMARY",
+    ]);
+
+    const franchise = media.relations.edges
+      .filter(
+        (edge) =>
+          edge.node?.type === "ANIME" &&
+          franchiseTypes.has(edge.relationType)
+      )
+      .map((edge) => mapToAnimeItem(edge.node!))
+      .filter((item) => item.id !== id);
+
+    const franchiseIds = new Set(franchise.map((item) => item.id));
+
+    const recommendations = media.recommendations.nodes
+      .map((node) => node.mediaRecommendation)
+      .filter(
+        (item): item is AniListMedia =>
+          Boolean(item) &&
+          item!.type === "ANIME" &&
+          item!.id !== id &&
+          !franchiseIds.has(item!.id)
+      )
+      .map((item) => mapToAnimeItem(item));
+
+    // Fill missing recommendations with popular anime
+    // sharing one or more genres.
+    let genreMatches: AnimeItem[] = [];
+
+    if (genres.length > 0 && recommendations.length < limit) {
+      const genreQuery = `
+        query ($genres: [String], $id: Int) {
+          Page(page: 1, perPage: 30) {
+            media(
+              type: ANIME
+              genre_in: $genres
+              id_not: $id
+              sort: POPULARITY_DESC
+              isAdult: false
+            ) {
+              id
+              title { romaji english native }
+              description(asHtml: false)
+              bannerImage
+              coverImage { extraLarge large medium color }
+              averageScore
+              status
+              format
+              episodes
+              season
+              seasonYear
+              genres
+              trailer { id site }
+            }
+          }
+        }
+      `;
+
+      const genreData = await fetchAniList<AniListPageResponse>(
+        genreQuery,
+        { genres, id },
+        3600
+      );
+
+      genreMatches = genreData.Page.media.map((item) =>
+        mapToAnimeItem(item)
+      );
+    }
+
+    const seen = new Set<number>([
+      id,
+      ...franchise.map((item) => item.id),
+    ]);
+
+    const recommended: AnimeItem[] = [];
+
+    for (const item of [...recommendations, ...genreMatches]) {
+      if (seen.has(item.id)) continue;
+
+      seen.add(item.id);
+      recommended.push(item);
+
+      if (recommended.length >= limit) break;
+    }
+
+    return {
+      franchise: franchise.slice(0, 8),
+      recommended,
+    };
+  }
+
 }
 
 export const animeService = new AnimeService();
