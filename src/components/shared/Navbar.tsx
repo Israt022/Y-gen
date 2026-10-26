@@ -86,11 +86,10 @@ export default function Navbar() {
   return (
     <>
       <header
-        className={`fixed inset-x-0 top-0 z-50 h-16 border-b transition-[background-color,border-color,backdrop-filter] duration-500 ${
-          scrolled
-            ? "border-white/[0.08] bg-[#080911]/75 backdrop-blur-xl"
-            : "border-transparent bg-[#080911]/0"
-        }`}
+        className={`fixed inset-x-0 top-0 z-50 h-16 border-b transition-[background-color,border-color,backdrop-filter] duration-500 ${scrolled
+          ? "border-white/[0.08] bg-[#080911]/75 backdrop-blur-xl"
+          : "border-transparent bg-[#080911]/0"
+          }`}
       >
         <div className="mx-auto grid h-full max-w-[1400px] grid-cols-[1fr_auto] items-center gap-4 px-5 sm:px-8 lg:grid-cols-[1fr_auto_1fr]">
           <div className="justify-self-start">
@@ -107,21 +106,19 @@ export default function Navbar() {
                     <Link
                       href={href}
                       aria-current={active ? "page" : undefined}
-                      className={`group relative inline-flex h-9 items-center rounded-md px-4 text-[13px] tracking-[0.04em] transition-colors duration-300 ${FOCUS_RING} ${
-                        active
-                          ? "text-white"
-                          : "text-white/55 hover:text-white"
-                      }`}
+                      className={`group relative inline-flex h-9 items-center rounded-md px-4 text-[13px] tracking-[0.04em] transition-colors duration-300 ${FOCUS_RING} ${active
+                        ? "text-white"
+                        : "text-white/55 hover:text-white"
+                        }`}
                     >
                       {label}
 
                       <span
                         aria-hidden="true"
-                        className={`pointer-events-none absolute inset-x-4 -bottom-[14px] h-px origin-center bg-gradient-to-r from-transparent via-violet-300 to-transparent transition-transform duration-500 ${
-                          active
-                            ? "scale-x-100"
-                            : "scale-x-0 group-hover:scale-x-50"
-                        }`}
+                        className={`pointer-events-none absolute inset-x-4 -bottom-[14px] h-px origin-center bg-gradient-to-r from-transparent via-violet-300 to-transparent transition-transform duration-500 ${active
+                          ? "scale-x-100"
+                          : "scale-x-0 group-hover:scale-x-50"
+                          }`}
                       />
                     </Link>
                   </li>
