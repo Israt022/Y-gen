@@ -270,10 +270,3 @@ export default function NotFound() {
         </main>
     );
 }
-// export default function NotFound() {
-//     return (
-//         <main className="flex min-h-screen items-center justify-center bg-[#090d18] text-white">
-//             <h1 className="text-6xl font-bold">404 — Not Found</h1>
-//         </main>
-//     );
-// }
