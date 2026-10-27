@@ -3,8 +3,9 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
-import { Play, ChevronDown, List, LayoutGrid } from "lucide-react";
+import { Play, ChevronDown, List, LayoutGrid, Check } from "lucide-react";
 import type { AnimeEpisode } from "@/../server/src/types/anime.types";
+import { useWatchProgress } from "@/lib/watch-progress";
 
 type Props = {
   animeId: number;
@@ -17,6 +18,7 @@ const PAGE_SIZE = 50;
 export default function EpisodeList({ animeId, episodes, format }: Props) {
   const [page, setPage] = useState(1);
   const [layout, setLayout] = useState<"list" | "grid">("list");
+  const { watchedEpisodes } = useWatchProgress(animeId);
 
   const isMovie = format === "MOVIE";
   if (isMovie) return null; // Movies handled separately
@@ -48,6 +50,7 @@ export default function EpisodeList({ animeId, episodes, format }: Props) {
     <section>
       <SectionHeader
         count={episodes.length}
+        watchedCount={watchedEpisodes.size}
         layout={layout}
         onLayoutChange={setLayout}
       />
@@ -61,9 +64,19 @@ export default function EpisodeList({ animeId, episodes, format }: Props) {
       >
         {visible.map((ep) =>
           layout === "grid" ? (
-            <GridEpisodeCard key={ep.number} ep={ep} animeId={animeId} />
+            <GridEpisodeCard
+              key={ep.number}
+              ep={ep}
+              animeId={animeId}
+              isWatched={watchedEpisodes.has(ep.number)}
+            />
           ) : (
-            <ListEpisodeCard key={ep.number} ep={ep} animeId={animeId} />
+            <ListEpisodeCard
+              key={ep.number}
+              ep={ep}
+              animeId={animeId}
+              isWatched={watchedEpisodes.has(ep.number)}
+            />
           )
         )}
       </div>
@@ -85,10 +98,12 @@ export default function EpisodeList({ animeId, episodes, format }: Props) {
 
 function SectionHeader({
   count,
+  watchedCount,
   layout,
   onLayoutChange,
 }: {
   count: number;
+  watchedCount?: number;
   layout?: "list" | "grid";
   onLayoutChange?: (v: "list" | "grid") => void;
 }) {
@@ -98,11 +113,16 @@ function SectionHeader({
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">
           Episodes
         </p>
-        <h2 className="mt-1 text-xl font-bold text-foreground">
-          Episode List
+        <h2 className="mt-1 text-xl font-bold text-foreground flex items-center gap-2">
+          <span>Episode List</span>
           {count > 0 && (
-            <span className="ml-2 text-base font-normal text-text-muted">
+            <span className="text-base font-normal text-text-muted">
               ({count})
+            </span>
+          )}
+          {watchedCount != null && watchedCount > 0 && (
+            <span className="rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 text-xs font-semibold text-emerald-400">
+              {watchedCount} Watched
             </span>
           )}
         </h2>
@@ -141,17 +161,19 @@ function SectionHeader({
 function ListEpisodeCard({
   ep,
   animeId,
+  isWatched,
 }: {
   ep: AnimeEpisode;
   animeId: number;
+  isWatched: boolean;
 }) {
   return (
     <Link
-      href={`/watch/${animeId}?ep=${ep.number}`}
+      href={`/watch/${animeId}?episode=${ep.number}`}
       className="group flex items-center gap-3 rounded-xl border border-border bg-surface/40 p-3 transition-all duration-200 hover:border-border-hover hover:bg-surface-hover"
     >
       {/* Thumbnail or number placeholder */}
-      <div className="relative h-16 w-28 shrink-0 overflow-hidden rounded-lg bg-background-secondary">
+      <div className="relative h-16 w-28 shrink-0 overflow-hidden rounded-lg bg-background-secondary border border-white/5">
         {ep.thumbnail ? (
           <Image
             src={ep.thumbnail}
@@ -167,18 +189,31 @@ function ListEpisodeCard({
             </span>
           </div>
         )}
+
         {/* Play overlay */}
         <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/40">
           <Play className="h-5 w-5 fill-white text-white opacity-0 drop-shadow transition-opacity group-hover:opacity-100" />
         </div>
+
+        {/* Watched Badge */}
+        {isWatched && (
+          <div className="absolute top-1.5 right-1.5 rounded-full bg-emerald-500/90 p-0.5 text-white shadow">
+            <Check className="h-3 w-3 stroke-[3]" />
+          </div>
+        )}
       </div>
 
       {/* Episode info */}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="shrink-0 text-xs font-bold text-text-muted">
+          <span className="shrink-0 text-xs font-bold text-primary">
             EP {ep.number}
           </span>
+          {isWatched && (
+            <span className="rounded bg-emerald-500/10 px-1.5 py-0.2 text-[10px] font-semibold text-emerald-400">
+              Watched
+            </span>
+          )}
           {ep.title && (
             <p className="line-clamp-1 text-sm font-medium text-foreground/90 group-hover:text-foreground">
               {ep.title}
@@ -186,7 +221,7 @@ function ListEpisodeCard({
           )}
         </div>
         {ep.airingAt && (
-          <p className="mt-0.5 text-xs text-text-muted">
+          <p className="mt-1 text-xs text-text-muted">
             {new Date(ep.airingAt * 1000).toLocaleDateString(undefined, {
               month: "short",
               day: "numeric",
@@ -204,17 +239,19 @@ function ListEpisodeCard({
 function GridEpisodeCard({
   ep,
   animeId,
+  isWatched,
 }: {
   ep: AnimeEpisode;
   animeId: number;
+  isWatched: boolean;
 }) {
   return (
     <Link
-      href={`/watch/${animeId}?ep=${ep.number}`}
+      href={`/watch/${animeId}?episode=${ep.number}`}
       className="group flex flex-col overflow-hidden rounded-xl border border-border bg-surface/40 transition-all duration-200 hover:border-border-hover hover:bg-surface-hover"
     >
       {/* Thumbnail */}
-      <div className="relative aspect-video w-full overflow-hidden bg-background-secondary">
+      <div className="relative aspect-video w-full overflow-hidden bg-background-secondary border-b border-white/5">
         {ep.thumbnail ? (
           <Image
             src={ep.thumbnail}
@@ -236,6 +273,11 @@ function GridEpisodeCard({
         <span className="absolute left-2 top-2 rounded-md bg-black/70 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-sm">
           EP {ep.number}
         </span>
+        {isWatched && (
+          <div className="absolute top-2 right-2 rounded-full bg-emerald-500/90 p-1 text-white shadow">
+            <Check className="h-3 w-3 stroke-[3]" />
+          </div>
+        )}
       </div>
 
       {/* Title */}

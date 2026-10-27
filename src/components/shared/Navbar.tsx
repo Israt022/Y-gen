@@ -20,6 +20,10 @@ export default function Navbar() {
   const pathname = usePathname() ?? "";
   const router = useRouter();
 
+  if (pathname.startsWith("/watch")) {
+    return null;
+  }
+
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);

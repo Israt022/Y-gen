@@ -6,6 +6,8 @@ import { useState } from "react";
 import { Play, Star, Clock, Tv, Film, BookOpen, ChevronDown, ChevronUp } from "lucide-react";
 import type { AnimeDetail } from "@/../server/src/types/anime.types";
 
+import { useWatchProgress } from "@/lib/watch-progress";
+
 type Props = {
   anime: AnimeDetail;
 };
@@ -52,14 +54,19 @@ export default function AnimeDetailHero({ anime }: Props) {
     anime.coverImage.medium;
 
   const isMovie = anime.format === "MOVIE";
+  const { latestProgress } = useWatchProgress(anime.id);
   const synopsis = anime.synopsis || "";
   const isLong = synopsis.length > 320;
   const displayedSynopsis =
     isLong && !expanded ? synopsis.slice(0, 320).trimEnd() + "…" : synopsis;
 
-  const watchHref = isMovie
-    ? `/watch/${anime.id}`
-    : `/watch/${anime.id}?ep=1`;
+  const defaultWatchHref = isMovie
+    ? `/watch/${anime.id}?type=movie`
+    : `/watch/${anime.id}?episode=1`;
+
+  const resumeHref = latestProgress?.episodeNumber
+    ? `/watch/${anime.id}?episode=${latestProgress.episodeNumber}`
+    : defaultWatchHref;
 
   return (
     <section className="relative isolate overflow-hidden border-b border-white/[0.06]">
@@ -247,14 +254,42 @@ export default function AnimeDetailHero({ anime }: Props) {
           )}
 
           {/* CTA Buttons */}
-          <div className="mt-8 flex flex-wrap gap-3">
-            <Link
-              href={watchHref}
-              className="group flex items-center gap-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-violet-600/25 transition-all duration-300 hover:shadow-violet-600/40 hover:from-violet-500 hover:to-indigo-500"
-            >
-              <Play className="h-4 w-4 fill-white transition-transform duration-300 group-hover:scale-110" />
-              {isMovie ? "Watch Movie" : "Watch Now"}
-            </Link>
+          <div className="mt-8 flex flex-wrap items-center gap-3">
+            {latestProgress ? (
+              <>
+                <Link
+                  href={resumeHref}
+                  className="group flex items-center gap-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-violet-600/25 transition-all duration-300 hover:shadow-violet-600/40 hover:from-violet-500 hover:to-indigo-500"
+                >
+                  <Play className="h-4 w-4 fill-white transition-transform duration-300 group-hover:scale-110" />
+                  <span>
+                    {isMovie
+                      ? "Resume Movie"
+                      : `Continue Ep ${latestProgress.episodeNumber}`}
+                  </span>
+                  <span className="rounded-md bg-white/20 px-1.5 py-0.5 text-[11px] font-semibold">
+                    {latestProgress.percentage}%
+                  </span>
+                </Link>
+
+                {!isMovie && latestProgress.episodeNumber !== 1 && (
+                  <Link
+                    href={defaultWatchHref}
+                    className="flex items-center gap-2 rounded-xl border border-white/15 bg-white/[0.06] px-4 py-3 text-sm font-semibold text-foreground transition hover:border-white/25 hover:bg-white/[0.1]"
+                  >
+                    Start Ep 1
+                  </Link>
+                )}
+              </>
+            ) : (
+              <Link
+                href={defaultWatchHref}
+                className="group flex items-center gap-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-violet-600/25 transition-all duration-300 hover:shadow-violet-600/40 hover:from-violet-500 hover:to-indigo-500"
+              >
+                <Play className="h-4 w-4 fill-white transition-transform duration-300 group-hover:scale-110" />
+                {isMovie ? "Watch Movie" : "Watch Now"}
+              </Link>
+            )}
 
             {anime.trailer?.site === "youtube" && anime.trailer.id && (
               <a
