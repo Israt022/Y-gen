@@ -1,4 +1,4 @@
-import { AnimeItem, AnimeDetail } from "../types/anime.types";
+import { AnimeItem, AnimeDetail, AnimeRelation, AnimeEpisode, SeasonEntry } from "../types/anime.types";
 
 const ANILIST_GRAPHQL_URL =
   process.env.ANILIST_API_URL || "https://graphql.anilist.co";
@@ -81,6 +81,8 @@ interface AniListMedia {
   season: string | null;
   seasonYear: number | null;
   genres: string[];
+  source?: string | null;
+  countryOfOrigin?: string | null;
   studios?: {
     nodes: Array<{ name: string }>;
   };
@@ -93,6 +95,27 @@ interface AniListMedia {
     id: string;
     site: string;
   } | null;
+  relations?: {
+    edges: Array<{
+      relationType: string;
+      node: {
+        id: number;
+        type: string;
+        format: string | null;
+        episodes: number | null;
+        seasonYear: number | null;
+        status: string | null;
+        title: { romaji: string; english: string | null; native: string | null };
+        coverImage: { extraLarge: string | null; large: string | null; medium: string | null; color: string | null };
+      } | null;
+    }>;
+  };
+  streamingEpisodes?: Array<{
+    title: string | null;
+    thumbnail: string | null;
+    url: string | null;
+    site: string | null;
+  }>;
 }
 
 interface AniListPageResponse {
@@ -265,7 +288,7 @@ export class AnimeService {
   }
 
   /**
-   * Fetch detailed anime information by ID.
+   * Fetch detailed anime information by ID, including relations for season selector.
    */
   async getAnimeById(id: number): Promise<AnimeDetail | null> {
     const query = `
@@ -296,6 +319,8 @@ export class AnimeService {
           season
           seasonYear
           genres
+          source
+          countryOfOrigin
           studios(isMain: true) {
             nodes {
               name
@@ -309,6 +334,21 @@ export class AnimeService {
           trailer {
             id
             site
+          }
+          relations {
+            edges {
+              relationType
+              node {
+                id
+                type
+                format
+                episodes
+                seasonYear
+                status
+                title { romaji english native }
+                coverImage { extraLarge large medium color }
+              }
+            }
           }
         }
       }
@@ -325,16 +365,198 @@ export class AnimeService {
     }
 
     const base = mapToAnimeItem(data.Media);
+
+    // Map relation edges to AnimeRelation[]
+    const relations: AnimeRelation[] = (data.Media.relations?.edges ?? [])
+      .filter((edge) => edge.node !== null && edge.node.type === "ANIME")
+      .map((edge) => ({
+        id: edge.node!.id,
+        relationType: edge.relationType,
+        title: {
+          romaji: edge.node!.title.romaji,
+          english: edge.node!.title.english,
+          native: edge.node!.title.native,
+        },
+        coverImage: {
+          extraLarge: edge.node!.coverImage.extraLarge,
+          large: edge.node!.coverImage.large,
+          medium: edge.node!.coverImage.medium,
+          color: edge.node!.coverImage.color,
+        },
+        format: edge.node!.format,
+        episodes: edge.node!.episodes,
+        seasonYear: edge.node!.seasonYear,
+        status: edge.node!.status,
+      }));
+
     return {
       ...base,
       meanScore: data.Media.meanScore,
       popularity: data.Media.popularity,
       favourites: data.Media.favourites,
       duration: data.Media.duration,
+      source: data.Media.source,
+      countryOfOrigin: data.Media.countryOfOrigin,
       studios: data.Media.studios?.nodes.map((n) => n.name) || [],
       nextAiringEpisode: data.Media.nextAiringEpisode,
       trailer: data.Media.trailer,
+      relations,
     };
+  }
+
+  /**
+   * Fetch episode list for an anime using AniList's streamingEpisodes (metadata only, no illegal streams).
+   * Falls back to a generated list from episode count when metadata is unavailable.
+   */
+  async getAnimeEpisodes(id: number, totalEpisodes?: number | null): Promise<AnimeEpisode[]> {
+    const query = `
+      query ($id: Int) {
+        Media(id: $id, type: ANIME) {
+          streamingEpisodes {
+            title
+            thumbnail
+            url
+            site
+          }
+          episodes
+          airingSchedule(notYetAired: false) {
+            nodes {
+              episode
+              airingAt
+            }
+          }
+        }
+      }
+    `;
+
+    type EpisodesResponse = {
+      Media: {
+        streamingEpisodes: Array<{
+          title: string | null;
+          thumbnail: string | null;
+          url: string | null;
+          site: string | null;
+        }> | null;
+        episodes: number | null;
+        airingSchedule: {
+          nodes: Array<{ episode: number; airingAt: number }>;
+        } | null;
+      } | null;
+    };
+
+    try {
+      const data = await fetchAniList<EpisodesResponse>(query, { id }, 1800);
+      const media = data.Media;
+      if (!media) return [];
+
+      const knownCount = media.episodes ?? totalEpisodes ?? null;
+      const streaming = media.streamingEpisodes ?? [];
+      const airedMap = new Map<number, number>(
+        (media.airingSchedule?.nodes ?? []).map((n) => [n.episode, n.airingAt])
+      );
+
+      // AniList streamingEpisodes are ordered newest-first; reverse to oldest-first.
+      // They contain external streaming links (Crunchyroll etc.) — we keep the metadata
+      // but do NOT use the URLs for embedded playback.
+      if (streaming.length > 0) {
+        const episodes: AnimeEpisode[] = streaming
+          .slice()
+          .reverse()
+          .map((ep, idx) => {
+            const epNum = idx + 1;
+            return {
+              number: epNum,
+              title: ep.title || null,
+              thumbnail: ep.thumbnail || null,
+              url: null, // We intentionally drop the external URL
+              airingAt: airedMap.get(epNum) ?? null,
+            };
+          });
+        return episodes;
+      }
+
+      // Fallback: generate numbered stubs if we know the episode count
+      if (knownCount && knownCount > 0) {
+        return Array.from({ length: knownCount }, (_, i) => ({
+          number: i + 1,
+          title: null,
+          thumbnail: null,
+          url: null,
+          airingAt: airedMap.get(i + 1) ?? null,
+        }));
+      }
+
+      return [];
+    } catch (err) {
+      console.error(`[AnimeService.getAnimeEpisodes] id=${id}:`, err);
+      // Fallback: numbered stubs
+      if (totalEpisodes && totalEpisodes > 0) {
+        return Array.from({ length: totalEpisodes }, (_, i) => ({
+          number: i + 1,
+          title: null,
+          thumbnail: null,
+          url: null,
+          airingAt: null,
+        }));
+      }
+      return [];
+    }
+  }
+
+  /**
+   * Build a season selector list from the relations of an anime.
+   * Only includes PREQUEL / SEQUEL / PARENT that are TV or ONA (i.e. "main series" entries).
+   * The current anime is always included and marked isCurrent=true.
+   */
+  buildSeasonList(
+    currentAnime: AnimeDetail,
+    relations: AnimeRelation[]
+  ): SeasonEntry[] {
+    const mainFormats = new Set(["TV", "ONA", "OVA"]);
+    const seasonRelTypes = new Set(["PREQUEL", "SEQUEL", "PARENT"]);
+
+    const related = relations.filter(
+      (r) =>
+        seasonRelTypes.has(r.relationType) &&
+        r.format != null &&
+        mainFormats.has(r.format)
+    );
+
+    if (related.length === 0) {
+      return []; // single season — don't show selector
+    }
+
+    const currentEntry: SeasonEntry = {
+      id: currentAnime.id,
+      label: currentAnime.title.english || currentAnime.title.romaji,
+      relationType: "SELF",
+      format: currentAnime.format ?? null,
+      episodes: currentAnime.episodes ?? null,
+      seasonYear: currentAnime.seasonYear ?? null,
+      coverImage: currentAnime.coverImage,
+      isCurrent: true,
+    };
+
+    const entries: SeasonEntry[] = related.map((r) => ({
+      id: r.id,
+      label: r.title.english || r.title.romaji,
+      relationType: r.relationType,
+      format: r.format ?? null,
+      episodes: r.episodes ?? null,
+      seasonYear: r.seasonYear ?? null,
+      coverImage: r.coverImage,
+      isCurrent: false,
+    }));
+
+    // Merge current + related, sort by release year ascending
+    const all = [currentEntry, ...entries].sort((a, b) => {
+      if (a.seasonYear && b.seasonYear) return a.seasonYear - b.seasonYear;
+      if (a.seasonYear) return -1;
+      if (b.seasonYear) return 1;
+      return 0;
+    });
+
+    return all;
   }
 
   /**
